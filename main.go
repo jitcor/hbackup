@@ -47,7 +47,7 @@ func (that *DataManager) Backup(packageName string) error {
 		commands = append(commands, fmt.Sprintf("am force-stop %s", packageName))
 	}
 	apkPath := "\"\""
-	if that.isSkipApk {
+	if !that.isSkipApk {
 		errPtr := new(error)
 		apkPath = dcmd.Exec_(that.AdbPath+" shell pm path "+packageName, errPtr)
 		if *errPtr != nil {
