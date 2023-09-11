@@ -17,7 +17,8 @@ type DataManager struct {
 	BusyboxPath    string
 	AdbPath        string
 	IsForceStop    bool
-	isSkipApk      bool
+	BackupApk      bool
+	usingGZ        bool
 }
 
 func NewDataManager(adbPath string) *DataManager {
@@ -27,41 +28,62 @@ func NewDataManager(adbPath string) *DataManager {
 	ptr.BusyboxPath = ""
 	ptr.AdbPath = adbPath
 	ptr.IsForceStop = true
-	ptr.isSkipApk = true
+	ptr.BackupApk = false
+	ptr.usingGZ = false
 	return ptr
 }
 func (that *DataManager) SetForceStop(forceStop bool) {
 	that.IsForceStop = forceStop
 }
-func (that *DataManager) SetSkipApk(skipApk bool) {
-	that.isSkipApk = skipApk
+func (that *DataManager) SetBackupApk(backupApk bool) {
+	that.BackupApk = backupApk
+}
+func (that *DataManager) SetUsingGZ(usingGZ bool) {
+	that.usingGZ = usingGZ
 }
 
 func (that *DataManager) Backup(packageName string) error {
-	savePath := fmt.Sprintf("%s/HBackup_%s_%s_%s_%s.zip",
+	prefix := ".tar"
+	if that.usingGZ {
+		prefix += ".gz"
+	}
+	savePath := fmt.Sprintf("%s/HBackup_%s_%s_%s_%s%s",
 		that.fixPath(that.BackupFilePath),
 		packageName,
-		that.fixPath(that.getVersionName(packageName)), that.fixPath(that.getModel()), time.Now().Format("20060102_150405"))
+		that.fixPath(that.getVersionName(packageName)),
+		that.fixPath(that.getModel()),
+		time.Now().Format("20060102_150405"),
+		prefix)
 	commands := make([]string, 0)
 	if that.IsForceStop {
 		commands = append(commands, fmt.Sprintf("am force-stop %s", packageName))
 	}
-	apkPath := "\"\""
-	if !that.isSkipApk {
+	commands = append(commands,
+		fmt.Sprintf("%s rm -rf /data/data/.external.%s", that.BusyboxPath, packageName),
+		fmt.Sprintf("%s ln -sf \"/sdcard/Android/data/%s\" \"/data/data/.external.%s\"", that.BusyboxPath, packageName, packageName))
+	apkPathLink := ""
+	if that.BackupApk {
 		errPtr := new(error)
-		apkPath = dcmd.Exec_(that.AdbPath+" shell pm path "+packageName, errPtr)
+		apkPath := dcmd.Exec_(that.AdbPath+" shell pm path "+packageName, errPtr)
 		if *errPtr != nil {
 			return *errPtr
 		}
 		apkPath = strings.TrimSpace(apkPath)
 		apkPath = strings.Split(apkPath, ":")[1]
-		apkPath = fmt.Sprintf("\"%s\"", apkPath)
 		log.Println("apk path:", apkPath)
+		apkPathLink = fmt.Sprintf("\"/data/data/%s_%s.apk\"", packageName, that.fixPath(that.getVersionName(packageName)))
+		commands = append(commands,
+			fmt.Sprintf("%s ln -sfn \"%s\" %s", that.BusyboxPath, apkPath, apkPathLink))
+
+	}
+	options := "-ch"
+	if that.usingGZ {
+		options += "z"
 	}
 	commands = append(commands,
-		fmt.Sprintf("%s rm -rf /data/data/.external.%s", that.BusyboxPath, packageName),
-		fmt.Sprintf("%s ln -sf \"/sdcard/Android/data/%s\" \"/data/data/.external.%s\"", that.BusyboxPath, packageName, packageName),
-		fmt.Sprintf("%s tar -c \"/data/data/%s/\" \"/data/data/.external.%s/.\" %s --exclude \"data/data/%s/lib/\" > \"%s\"", that.BusyboxPath, packageName, packageName, apkPath, packageName, savePath),
+		fmt.Sprintf("%s tar %s \"/data/data/%s/\" \"/data/data/.external.%s/.\" %s --exclude \"data/data/%s/lib/\" > \"%s\"", that.BusyboxPath, options, packageName, packageName, apkPathLink, packageName, savePath))
+
+	commands = append(commands,
 		fmt.Sprintf("%s rm -rf \"/data/data/.external.%s\"", that.BusyboxPath, packageName))
 	if that.IsForceStop {
 		commands = append(commands, fmt.Sprintf("am force-stop %s", packageName))
@@ -168,14 +190,16 @@ func main() {
 	var packageName string
 	var serialNumber string
 	var isForceStop bool
-	var isSkipApk bool
+	var backupApk bool
+	var usingGZ bool
 	flag.StringVar(&adbPath, "a", "adb", "adb path")
 	flag.StringVar(&serialNumber, "s", "", "device serial number")
 	flag.BoolVar(&isForceStop, "f", true, "force stop target app")
-	flag.BoolVar(&isSkipApk, "k", true, "skip apk file")
+	flag.BoolVar(&backupApk, "c", false, "backup apk file")
+	flag.BoolVar(&usingGZ, "g", false, "backup file with gz")
 	flag.Parse()
 	if flag.NArg() != 1 || flag.Arg(0) == "" {
-		println("The packageName must be specified.\neg:\nhbackup [-a=value] [-s=value] [-k=true/false] [-f=true/false] xxx.xxx.xxx")
+		println("The packageName must be specified.\neg:\nhbackup [-a=adb path] [-s=serial number] [-c=true/false] [-f=true/false] [-g=false/true] your.package.name")
 		return
 	}
 	packageName = flag.Arg(0)
@@ -185,7 +209,8 @@ func main() {
 	}
 	dataManager := NewDataManager(adbPath)
 	dataManager.SetForceStop(isForceStop)
-	dataManager.SetSkipApk(isSkipApk)
+	dataManager.SetBackupApk(backupApk)
+	dataManager.SetUsingGZ(usingGZ)
 	err := dataManager.Backup(packageName)
 	if err != nil {
 		println("HBackup error:", err)
