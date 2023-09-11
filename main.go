@@ -42,6 +42,7 @@ func (that *DataManager) SetUsingGZ(usingGZ bool) {
 	that.usingGZ = usingGZ
 }
 
+//tar link: https://www.cnblogs.com/TreeDream/p/10277075.html
 func (that *DataManager) Backup(packageName string) error {
 	prefix := ".tar"
 	if that.usingGZ {
