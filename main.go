@@ -85,6 +85,11 @@ func (that *DataManager) Backup(packageName string) error {
 
 	commands = append(commands,
 		fmt.Sprintf("%s rm -rf \"/data/data/.external.%s\"", that.BusyboxPath, packageName))
+
+	if that.BackupApk {
+		commands = append(commands,
+			fmt.Sprintf("%s rm -rf %s", that.BusyboxPath, apkPathLink))
+	}
 	if that.IsForceStop {
 		commands = append(commands, fmt.Sprintf("am force-stop %s", packageName))
 	}
